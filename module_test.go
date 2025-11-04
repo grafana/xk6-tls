@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,17 +24,9 @@ func TestGetCertificateOK(t *testing.T) {
 	ts := httptest.NewTLSServer(nil)
 	defer ts.Close()
 
-	testcases := []string{
-		fmt.Sprintf(`await tls.getCertificate("%s")`, strings.TrimPrefix(ts.URL, "https://")),
-	}
-
-	for i, tc := range testcases {
-		t.Run("testcase#"+strconv.Itoa(i), func(t *testing.T) {
-			_, err := trt.RunOnEventLoop(wrapInAsyncLambda(tc))
-			assert.NoError(t, err)
-		})
-	}
-
+	testScript := fmt.Sprintf(`await tls.getCertificate("%s")`, strings.TrimPrefix(ts.URL, "https://"))
+	_, err := trt.RunOnEventLoop(wrapInAsyncLambda(testScript))
+	require.NoError(t, err)
 }
 
 func TestGetCertificateNoTLS(t *testing.T) {
@@ -61,6 +52,39 @@ func TestGetCertificateBlockedHostname(t *testing.T) {
 	testScript := `await tls.getCertificate("blocked.net")`
 	_, err := trt.RunOnEventLoop(wrapInAsyncLambda(testScript))
 	assert.ErrorContains(t, err, "blocked hostname")
+}
+
+func TestParseTargetAddr(t *testing.T) {
+	t.Parallel()
+	testcases := []struct {
+		target  string
+		expAddr string
+		expErr  string
+	}{
+		{"", "", "target address was not provided"},
+		{"htt://", "", "not contain a valid port"},
+		{"http://", "", "not contain a valid port"},
+		{"http://notok.com", "", "not contain a valid port"},
+		{"https://ok.com", "", "not contain a valid port"},
+		{"https://ok.com:", "", "too many colons"},
+		{"ok.com", "ok.com:443", ""},
+		{"ok.com:", "ok.com:443", ""},
+		{"ok.com:443", "ok.com:443", ""},
+		{"ok.com:1234", "ok.com:1234", ""},
+		{"ok.com:65536", "", "not contain a valid port"}, // over the max allowed
+	}
+	for _, tc := range testcases {
+		t.Run(tc.target, func(t *testing.T) {
+			t.Parallel()
+			addr, err := parseTargetAddr(tc.target)
+			if tc.expErr != "" {
+				require.ErrorContains(t, err, tc.expErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expAddr, addr.uri)
+			}
+		})
+	}
 }
 
 func newTestRuntime(t testing.TB) *modulestest.Runtime {
@@ -93,7 +117,6 @@ func newTestVUState() *lib.State {
 }
 
 func newTestDialer() *netext.Dialer {
-
 	d := netext.NewDialer(net.Dialer{
 		Timeout:   2 * time.Second,
 		KeepAlive: 10 * time.Second,
@@ -111,37 +134,6 @@ func newTestDialer() *netext.Dialer {
 	d.BlockedHostnames = trie
 
 	return d
-}
-
-func TestParseTargetAddr(t *testing.T) {
-	testcases := []struct {
-		target  string
-		expAddr string
-		expErr  string
-	}{
-		{"", "", "target address was not provided"},
-		{"htt://", "", "not contain a valid port"},
-		{"http://", "", "not contain a valid port"},
-		{"http://notok.com", "", "not contain a valid port"},
-		{"https://ok.com", "", "not contain a valid port"},
-		{"https://ok.com:", "", "too many colons"},
-		{"ok.com", "ok.com:443", ""},
-		{"ok.com:", "ok.com:443", ""},
-		{"ok.com:443", "ok.com:443", ""},
-		{"ok.com:1234", "ok.com:1234", ""},
-		{"ok.com:65536", "", "not contain a valid port"}, // over the max allowed
-	}
-	for _, tc := range testcases {
-		t.Run(tc.target, func(t *testing.T) {
-			addr, err := parseTargetAddr(tc.target)
-			if tc.expErr != "" {
-				require.ErrorContains(t, err, tc.expErr)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tc.expAddr, addr.uri)
-			}
-		})
-	}
 }
 
 // wrapInAsyncLambda is a helper function that wraps the provided input in an async lambda.

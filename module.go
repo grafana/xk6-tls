@@ -1,3 +1,4 @@
+// Package tls give access to information access and operations for tls connections
 package tls
 
 import (
@@ -7,7 +8,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/grafana/sobek"
 	"go.k6.io/k6/js/modules"
@@ -22,13 +22,7 @@ type (
 
 	// ModuleInstance represents an instance of the JS module.
 	ModuleInstance struct {
-		clock
-
 		vu modules.VU
-	}
-
-	clock interface {
-		Now() time.Time
 	}
 )
 
@@ -47,8 +41,7 @@ func New() *RootModule {
 // a new instance for each VU.
 func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
 	return &ModuleInstance{
-		clock: clockNowFunc(time.Now),
-		vu:    vu,
+		vu: vu,
 	}
 }
 
@@ -58,6 +51,7 @@ func (mi *ModuleInstance) Exports() modules.Exports {
 	return modules.Exports{Default: mi}
 }
 
+// GetCertificate fetches and exposes the peer certificate's details.
 func (mi *ModuleInstance) GetCertificate(target string) *sobek.Promise {
 	p, resolve, reject := promises.New(mi.vu)
 
@@ -73,7 +67,10 @@ func (mi *ModuleInstance) GetCertificate(target string) *sobek.Promise {
 		return p
 	}
 
-	d := state.Dialer.(*netext.Dialer)
+	d, ok := state.Dialer.(*netext.Dialer)
+	if !ok {
+		panic("state.Dialer is not the expected *netext.Dialer type")
+	}
 	if d.BlockedHostnames != nil {
 		if _, blocked := d.BlockedHostnames.Contains(addr.host); blocked {
 			reject(fmt.Sprintf("blocked hostname: %s", addr))
@@ -82,32 +79,39 @@ func (mi *ModuleInstance) GetCertificate(target string) *sobek.Promise {
 	}
 
 	go func() {
-		conn, err := tls.DialWithDialer(
-			&d.Dialer,
-			"tcp",
-			addr.uri,
-			&tls.Config{
+		td := tls.Dialer{
+			NetDialer: &d.Dialer,
+			Config: &tls.Config{
+				//nolint:gosec
+				// we need to skip the check otherwise any eventual
+				// expired certificate will return an error
 				InsecureSkipVerify: true,
-			})
+			},
+		}
+		rawconn, err := td.DialContext(mi.vu.Context(), "tcp", addr.uri)
 		if err != nil {
 			reject(err)
 			return
 		}
 		defer func() {
-			err := conn.Close()
+			err := rawconn.Close()
 			if err != nil {
 				state.Logger.WithError(err).Warn("Failed closing connection for TLS certificate detection")
 			}
 		}()
+		conn, ok := rawconn.(*tls.Conn)
+		if !ok {
+			panic("the dialing operation didn't return the expected tls.Conn type")
+		}
 		peerCerts := conn.ConnectionState().PeerCertificates
 		if len(peerCerts) < 1 {
 			reject(fmt.Errorf("chain of peer certificates for %q is empty", target))
 			return
 		}
 		c := peerCerts[0]
-		vc := mi.vu.Runtime().ToValue(Certificate{
-			Subject:     PkixName{CommonName: c.Subject.CommonName},
-			Issuer:      PkixName{CommonName: c.Issuer.CommonName},
+		vc := mi.vu.Runtime().ToValue(certificate{
+			Subject:     pkixName{CommonName: c.Subject.CommonName},
+			Issuer:      pkixName{CommonName: c.Issuer.CommonName},
 			Issued:      c.NotBefore.UnixMilli(),
 			Expires:     c.NotAfter.UnixMilli(),
 			Fingerprint: fingerprint(c.Raw),
@@ -117,16 +121,12 @@ func (mi *ModuleInstance) GetCertificate(target string) *sobek.Promise {
 	return p
 }
 
-type Certificate struct {
-	Subject     PkixName
-	Issuer      PkixName
+type certificate struct {
+	Subject     pkixName
+	Issuer      pkixName
 	Issued      int64
 	Expires     int64
 	Fingerprint string
-}
-
-type PkixName struct {
-	CommonName string
 }
 
 func fingerprint(cert []byte) string {
@@ -134,51 +134,47 @@ func fingerprint(cert []byte) string {
 	return fmt.Sprintf("%x", sum)
 }
 
-type clockNowFunc func() time.Time
-
-func (clockNowFunc) Now() time.Time {
-	return time.Now()
+type pkixName struct {
+	CommonName string
 }
-
 type addr struct {
 	host, port string
 	uri        string
 }
 
 func parseTargetAddr(target string) (addr, error) {
-	var a addr
-
 	if target == "" {
-		return a, fmt.Errorf("target address was not provided")
+		return addr{}, fmt.Errorf("target address was not provided")
+	}
+	port := "443" // default https port
+
+	if !strings.Contains(target, ":") {
+		return addr{
+			host: target,
+			port: port,
+			uri:  net.JoinHostPort(target, port),
+		}, nil
 	}
 
-	var (
-		port = "443" // default https port
-		host = target
-	)
+	h, p, err := net.SplitHostPort(target)
+	if err != nil {
+		return addr{}, err
+	}
+	if h == "" {
+		return addr{}, fmt.Errorf("the provided target does not contain a valid address in the host:[port] format")
+	}
 
-	if strings.Contains(target, ":") {
-		h, p, err := net.SplitHostPort(target)
-		if err != nil {
-			return a, err
+	if p != "" {
+		_, parseErr := strconv.ParseUint(p, 10, 16)
+		if parseErr != nil {
+			return addr{}, fmt.Errorf("the provided target does not contain a valid port %q", p)
 		}
-		if h == "" {
-			return a, fmt.Errorf("the provided target does not contain a valid address in the host:[port] format")
-		}
-		host = h
-
-		if p != "" {
-			_, parseErr := strconv.ParseUint(p, 10, 16)
-			if parseErr != nil {
-				return a, fmt.Errorf("the provided target does not contain a valid port %q", p)
-			}
-			port = p
-		}
+		port = p
 	}
 
 	return addr{
-		host: host,
+		host: h,
 		port: port,
-		uri:  net.JoinHostPort(host, port),
+		uri:  net.JoinHostPort(h, port),
 	}, nil
 }
