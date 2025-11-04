@@ -96,16 +96,17 @@ func (mi *ModuleInstance) GetCertificate(target string) *sobek.Promise {
 		defer func() {
 			err := rawconn.Close()
 			if err != nil {
-				state.Logger.WithError(err).Warn("Failed closing connection for TLS certificate detection")
+				state.Logger.WithError(err).Debug("Failed to close TLS connection")
 			}
 		}()
 		conn, ok := rawconn.(*tls.Conn)
 		if !ok {
-			panic("the dialing operation didn't return the expected tls.Conn type")
+			reject(fmt.Errorf("failed to establish TLS connection: unexpected connection type"))
+			return
 		}
 		peerCerts := conn.ConnectionState().PeerCertificates
 		if len(peerCerts) < 1 {
-			reject(fmt.Errorf("chain of peer certificates for %q is empty", target))
+			reject(fmt.Errorf("no certificate found for %s - the server may not be using TLS or the connection failed", target))
 			return
 		}
 		c := peerCerts[0]
