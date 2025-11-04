@@ -24,9 +24,16 @@ func TestGetCertificateOK(t *testing.T) {
 	ts := httptest.NewTLSServer(nil)
 	defer ts.Close()
 
-	testScript := fmt.Sprintf(`await tls.getCertificate("%s")`, strings.TrimPrefix(ts.URL, "https://"))
-	_, err := trt.RunOnEventLoop(wrapInAsyncLambda(testScript))
+	testScript := fmt.Sprintf(`
+		JSON.stringify(await tls.getCertificate("%s"));
+	`, strings.TrimPrefix(ts.URL, "https://"))
+
+	_, err := trt.RunOnEventLoop("(async ()=>{globalThis.result = " + testScript + "})()")
 	require.NoError(t, err)
+	v := trt.VU.Runtime().GlobalObject().Get("result")
+
+	exp := `{"subject":{"common_name":""},"issuer":{"common_name":""},"issued":0,"expires":3600000000000,"fingerprint":"468174fd18ae990a0a1e10568e30f9819a8acd23224c319f4ec3eb4f6f2980d9"}`
+	assert.JSONEq(t, exp, v.ToString().String())
 }
 
 func TestGetCertificateNoTLS(t *testing.T) {
@@ -89,31 +96,19 @@ func TestParseTargetAddr(t *testing.T) {
 
 func newTestRuntime(t testing.TB) *modulestest.Runtime {
 	runtime := modulestest.NewRuntime(t)
-
-	err := runtime.SetupModuleSystem(
-		map[string]any{"k6/x/tls": New()},
-		nil,
-		nil,
-	)
-	require.NoError(t, err)
-
-	_, err = runtime.VU.Runtime().RunString(initGlobals)
-	require.NoError(t, err)
-
-	state := newTestVUState()
-	state.Dialer = newTestDialer()
-	runtime.MoveToVUContext(state)
-
-	return runtime
-}
-
-func newTestVUState() *lib.State {
-	return &lib.State{
+	state := &lib.State{
 		BuiltinMetrics: metrics.RegisterBuiltinMetrics(metrics.NewRegistry()),
 		Dialer:         newTestDialer(),
 		Tags:           lib.NewVUStateTags(metrics.NewRegistry().RootTagSet().With("tag-vu", "mytag")),
 		Samples:        make(chan metrics.SampleContainer, 8),
 	}
+	runtime.MoveToVUContext(state)
+
+	m, ok := New().NewModuleInstance(runtime.VU).(*ModuleInstance)
+	require.True(t, ok)
+	require.NoError(t, runtime.VU.RuntimeField.Set("tls", m.Exports().Default))
+
+	return runtime
 }
 
 func newTestDialer() *netext.Dialer {
@@ -139,10 +134,5 @@ func newTestDialer() *netext.Dialer {
 // wrapInAsyncLambda is a helper function that wraps the provided input in an async lambda.
 // This makes the use of `await` statements in the input possible.
 func wrapInAsyncLambda(input string) string {
-	// This makes it possible to use `await` freely on the "top" level
 	return "(async () => {\n " + input + "\n })()"
 }
-
-const initGlobals = `
-	globalThis.tls = require("k6/x/tls");
-`
