@@ -7,7 +7,9 @@ export const options = {
 
 export default async function () {
   let res = await tls.getCertificate("quickpizza.grafana.com");
-  //let res = await tls.getCertificate("expired-rsa-dv.ssl.com");
+
+  // Below a test case when the certificate is expired:
+  // let res = await tls.getCertificate("expired-rsa-dv.ssl.com");
 
   console.log(`
     subj: ${res.subject.common_name}

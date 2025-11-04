@@ -1,8 +1,14 @@
 # xk6-tls
 
-A k6 extension for TLS certificates validation and inspection
+A k6 extension for TLS certificates validation and inspection.
 
-Check out the extension's documentation [here](https://grafana.com/docs/k6/latest/javascript-api/k6-x-tls).
+For detailed API reference and advanced usage, see the [official documentation](https://grafana.com/docs/k6/latest/javascript-api/k6-x-tls).
+
+## What you can do
+
+- Fetch TLS certificate information from any host
+- Validate certificate expiration and properties
+- Access certificate details (for example subject, issuer, fingerprint)
 
 ## Get started
 
@@ -13,16 +19,23 @@ import tls from "k6/x/tls";
 
 Call the API from the VU context
 ```js
+import tls from "k6/x/tls";
+import { check } from "k6";
+
 export default function () {
-  const cert = tls.getCertificate("myexample.com:4445");
-  // the format of the target is host:[port]
-  // if no port is provided then https 443 is used as default port
+  const cert = tls.getCertificate("example.com");
+
+  check(cert, {
+    "certificate is not expired": (c) => c.expires > Date.now(),
+  });
+
+  console.log(`Certificate expires: ${new Date(cert.expires)}`);
 }
 ```
 
 ## Build
 
-The most common and simple case is to use k6 with [automatic extension resolution](https://grafana.com/docs/k6/latest/extensions/run/#run-a-test-with-extensions). Simply add the extension's import and k6 will resolve the dependency automtically.
+The most common and simple case is to use k6 with [automatic extension resolution](https://grafana.com/docs/k6/latest/extensions/run/#run-a-test-with-extensions). Simply add the extension's import and k6 will resolve the dependency automatically.
 
 However, if you prefer to build it from source using xk6, first ensure you have the prerequisites:
 
