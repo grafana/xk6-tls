@@ -58,7 +58,7 @@ func TestGetCertificateBlockedHostname(t *testing.T) {
 
 	testScript := `await tls.getCertificate("blocked.net")`
 	_, err := trt.RunOnEventLoop(wrapInAsyncLambda(testScript))
-	assert.ErrorContains(t, err, "blocked hostname")
+	assert.ErrorContains(t, err, "blocked pattern")
 }
 
 func TestParseTargetAddr(t *testing.T) {
@@ -117,15 +117,10 @@ func newTestDialer() *netext.Dialer {
 		KeepAlive: 10 * time.Second,
 	}, nil)
 
-	blacklist := []*lib.IPNet{{
-		IPNet: net.IPNet{
-			IP:   net.ParseIP("1.1.1.1"), // just an ip
-			Mask: net.IPv4Mask(0, 0, 0, 0),
-		},
-	}}
-	d.Blacklist = blacklist
-
-	trie, _ := types.NewHostnameTrie([]string{"blocked.net"})
+	trie, err := types.NewHostnameTrie([]string{"blocked.net"})
+	if err != nil {
+		panic(err)
+	}
 	d.BlockedHostnames = trie
 
 	return d

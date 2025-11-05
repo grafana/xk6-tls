@@ -12,7 +12,6 @@ import (
 	"github.com/grafana/sobek"
 	"go.k6.io/k6/js/modules"
 	"go.k6.io/k6/js/promises"
-	"go.k6.io/k6/lib/netext"
 )
 
 type (
@@ -57,7 +56,7 @@ func (mi *ModuleInstance) GetCertificate(target string) *sobek.Promise {
 
 	state := mi.vu.State()
 	if state == nil {
-		reject(fmt.Errorf("not allowed to run in initcontext"))
+		reject(fmt.Errorf("getCertificate is not allowed to run from the Init Context"))
 		return p
 	}
 
@@ -67,41 +66,27 @@ func (mi *ModuleInstance) GetCertificate(target string) *sobek.Promise {
 		return p
 	}
 
-	d, ok := state.Dialer.(*netext.Dialer)
-	if !ok {
-		panic("state.Dialer is not the expected *netext.Dialer type")
-	}
-	if d.BlockedHostnames != nil {
-		if _, blocked := d.BlockedHostnames.Contains(addr.host); blocked {
-			reject(fmt.Sprintf("blocked hostname: %s", addr))
-			return p
-		}
-	}
-
 	go func() {
-		td := tls.Dialer{
-			NetDialer: &d.Dialer,
-			Config: &tls.Config{
-				//nolint:gosec
-				// we need to skip the check otherwise any eventual
-				// expired certificate will return an error
-				InsecureSkipVerify: true,
-			},
-		}
-		rawconn, err := td.DialContext(mi.vu.Context(), "tcp", addr.uri)
+		netconn, err := state.Dialer.DialContext(mi.vu.Context(), "tcp", addr.uri)
 		if err != nil {
 			reject(err)
 			return
 		}
 		defer func() {
-			err := rawconn.Close()
+			err := netconn.Close()
 			if err != nil {
-				state.Logger.WithError(err).Debug("Failed to close TLS connection")
+				state.Logger.WithError(err).Debug("Failed to close connection")
 			}
 		}()
-		conn, ok := rawconn.(*tls.Conn)
-		if !ok {
-			reject(fmt.Errorf("failed to establish TLS connection: unexpected connection type"))
+
+		conn := tls.Client(netconn, &tls.Config{
+			//nolint:gosec
+			// we need to skip the check otherwise any eventual
+			// expired certificate will return an error
+			InsecureSkipVerify: true,
+		})
+		if err := conn.HandshakeContext(mi.vu.Context()); err != nil {
+			reject(err)
 			return
 		}
 		peerCerts := conn.ConnectionState().PeerCertificates
