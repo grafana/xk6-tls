@@ -85,7 +85,7 @@ func (mi *ModuleInstance) GetCertificate(target string) *sobek.Promise {
 			// expired certificate will return an error
 			InsecureSkipVerify: true,
 		})
-		if err := conn.Handshake(); err != nil {
+		if err := conn.HandshakeContext(mi.vu.Context()); err != nil {
 			reject(err)
 			return
 		}

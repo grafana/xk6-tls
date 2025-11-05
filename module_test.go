@@ -118,7 +118,7 @@ func newTestDialer() *netext.Dialer {
 	}, nil)
 
 	trie, err := types.NewHostnameTrie([]string{"blocked.net"})
-	if err != err {
+	if err != nil {
 		panic(err)
 	}
 	d.BlockedHostnames = trie
