@@ -22,8 +22,8 @@ Call the API from the VU context
 import tls from "k6/x/tls";
 import { check } from "k6";
 
-export default function () {
-  const cert = tls.getCertificate("example.com");
+export default async function () {
+  const cert = await tls.getCertificate("example.com");
 
   check(cert, {
     "certificate is not expired": (c) => c.expires > Date.now(),
