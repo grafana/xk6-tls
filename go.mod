@@ -2,6 +2,8 @@ module github.com/grafana/xk6-tls
 
 go 1.25.0
 
+toolchain go1.25.10
+
 require (
 	github.com/grafana/sobek v0.0.0-20260219184149-bdae4a158e94
 	github.com/stretchr/testify v1.11.1
