@@ -1,8 +1,6 @@
 module github.com/grafana/xk6-tls
 
-go 1.25.0
-
-toolchain go1.25.14
+go 1.26.0
 
 require (
 	github.com/grafana/sobek v0.0.0-20260727154728-7781506a890f
@@ -40,7 +38,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
