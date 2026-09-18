@@ -20,3 +20,4 @@ The module follows k6's root-module/per-VU-instance pattern: a singleton root mo
 - Address parsing accepts scheme-prefixed URLs (like "https://host") but treats the scheme as a hostname component, causing a confusing "not contain a valid port" error. This is a known rough edge, not a bug to fix in the parser.
 - Promise resolution happens on a background goroutine. The resolve/reject calls must only use values created on that goroutine or safely shared -- passing VU-runtime objects created on the main goroutine can cause races.
 - CI is delegated to an external shared workflow repository. Workflow changes must be made there, not in this repo.
+- Security issues should be reported via [Grafana's security issue reporting page](https://grafana.com/legal/report-a-security-issue/) and not directly in this repository.
