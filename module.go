@@ -50,8 +50,64 @@ func (mi *ModuleInstance) Exports() modules.Exports {
 	return modules.Exports{Default: mi}
 }
 
+type GetCertificateOptions struct {
+	InsecureSkipVerify *bool  `json:"insecureSkipVerify"`
+	ServerName         string `json:"serverName"`
+}
+
+func parseOptions(runtime *sobek.Runtime, value sobek.Value) (GetCertificateOptions, error) {
+	var opts GetCertificateOptions
+
+	if value == nil || sobek.IsUndefined(value) || sobek.IsNull(value) {
+		return opts, nil
+	}
+
+	obj := value.ToObject(runtime)
+	if obj == nil {
+		return opts, fmt.Errorf("TLS options must be an object")
+	}
+
+	if v := obj.Get("insecureSkipVerify"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
+		b, ok := v.Export().(bool)
+		if !ok {
+			return opts, fmt.Errorf("insecureSkipVerify must be a boolean")
+		}
+		opts.InsecureSkipVerify = &b
+	}
+
+	if v := obj.Get("serverName"); v != nil && !sobek.IsUndefined(v) && !sobek.IsNull(v) {
+		s, ok := v.Export().(string)
+		if !ok {
+			return opts, fmt.Errorf("serverName must be a string")
+		}
+		opts.ServerName = s
+	}
+
+	return opts, nil
+}
+
+func buildTLSConfig(target addr, opts GetCertificateOptions) *tls.Config {
+	// we need to skip the check otherwise any eventual
+	// expired certificate will return an error
+	insecureSkipVerify := true
+
+	if opts.InsecureSkipVerify != nil {
+		insecureSkipVerify = *opts.InsecureSkipVerify
+	}
+
+	var serverName string
+	if opts.ServerName != "" {
+		serverName = opts.ServerName
+	}
+
+	return &tls.Config{
+		ServerName:         serverName,
+		InsecureSkipVerify: insecureSkipVerify,
+	}
+}
+
 // GetCertificate fetches and exposes the peer certificate's details.
-func (mi *ModuleInstance) GetCertificate(target string) *sobek.Promise {
+func (mi *ModuleInstance) GetCertificate(target string, options sobek.Value) *sobek.Promise {
 	p, resolve, reject := promises.New(mi.vu)
 
 	state := mi.vu.State()
@@ -79,12 +135,18 @@ func (mi *ModuleInstance) GetCertificate(target string) *sobek.Promise {
 			}
 		}()
 
-		conn := tls.Client(netconn, &tls.Config{
-			//nolint:gosec
-			// we need to skip the check otherwise any eventual
-			// expired certificate will return an error
-			InsecureSkipVerify: true,
-		})
+		opts, err := parseOptions(mi.vu.Runtime(), options)
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		tlsOpts := buildTLSConfig(addr, opts)
+		if !tlsOpts.InsecureSkipVerify && opts.ServerName == "" {
+			reject(fmt.Errorf("serverName is required when insecureSkipVerify is false"))
+			return
+		}
+		conn := tls.Client(netconn, tlsOpts)
 		if err := conn.HandshakeContext(mi.vu.Context()); err != nil {
 			reject(err)
 			return
