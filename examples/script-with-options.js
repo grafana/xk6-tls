@@ -8,7 +8,7 @@ export const options = {
 export default async function () {
     const res = await tls.getCertificate("quickpizza.grafana.com", {
         insecureSkipVerify: false,
-        //serverName: "quickpizza.grafana.com",
+        serverName: "quickpizza.grafana.com",
     });
 
     // Below a test case when the certificate is expired:

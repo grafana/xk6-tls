@@ -122,6 +122,12 @@ func (mi *ModuleInstance) GetCertificate(target string, options sobek.Value) *so
 		return p
 	}
 
+	opts, err := parseOptions(mi.vu.Runtime(), options)
+	if err != nil {
+		reject(err)
+		return p
+	}
+
 	go func() {
 		netconn, err := state.Dialer.DialContext(mi.vu.Context(), "tcp", addr.uri)
 		if err != nil {
@@ -129,23 +135,12 @@ func (mi *ModuleInstance) GetCertificate(target string, options sobek.Value) *so
 			return
 		}
 		defer func() {
-			err := netconn.Close()
-			if err != nil {
+			if err := netconn.Close(); err != nil {
 				state.Logger.WithError(err).Debug("Failed to close connection")
 			}
 		}()
 
-		opts, err := parseOptions(mi.vu.Runtime(), options)
-		if err != nil {
-			reject(err)
-			return
-		}
-
 		tlsOpts := buildTLSConfig(addr, opts)
-		if !tlsOpts.InsecureSkipVerify && opts.ServerName == "" {
-			reject(fmt.Errorf("serverName is required when insecureSkipVerify is false"))
-			return
-		}
 		conn := tls.Client(netconn, tlsOpts)
 		if err := conn.HandshakeContext(mi.vu.Context()); err != nil {
 			reject(err)
